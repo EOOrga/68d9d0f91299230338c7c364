@@ -1,0 +1,35 @@
+{
+  "name": "CAVACIUTI MELEARD MARIE-THERES",
+  "short_name": "CAVACIUTI OPS",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#F7FAF9",
+  "theme_color": "#071B2C",
+  "description": "Local Android operations management for reservations, incidents, leads, and work orders.",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "icons/Icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/Icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/Icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/Icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+using $gpc-app-builder  create this app
+app title: CAVACIUTI MELEARD MARIE-THERES
+app idea: An operations-focused app offering reservation management, incident reporting, lead management, and work orders to streamline daily business tasks.
+company name: CAVACIUTI MELEARD MARIE-THERESE
+email address: [email to be provided later]
+the two icon and featured graphics contained in docs folder
