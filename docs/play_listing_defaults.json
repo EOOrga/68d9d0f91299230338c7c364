@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "applications": {
+    "com.taziggg100.cavaciuti_ops": {
+      "title": "CAVACIUTI MELEARD MARIE-THERES",
+      "short_description": "Manage reservations, incidents, leads, and work orders from a local...",
+      "full_description": "CAVACIUTI MELEARD MARIE-THERES gives small business teams a focused place to coordinate daily operational work on Android. Create reservations, incident reports, lead follow-ups, and work orders, then assign owners, priority, due windows, and status.\n\nThe app is built for practical local workflows: review the daily queue, filter the workboard, inspect status lanes, and update records as tasks move forward. Records and preferences stay on the device with no account, cloud sync, analytics, or external service connection.",
+      "source_screenshots": [
+        "docs/screens/1.png",
+        "docs/screens/2.png",
+        "docs/screens/3.png"
+      ],
+      "generated_from": "existing repository listing metadata and README",
+      "generated_at": "2026-10-02T21:22:25.680584+00:00"
+    }
+  }
+}
