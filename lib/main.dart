@@ -11,8 +11,8 @@ const compactModeKey = 'compact_cards_v1';
 const screenshotMode = bool.fromEnvironment('SCREENSHOT_MODE');
 
 const brandNavy = Color(0xFF071B2C);
-const brandTeal = Color(0xFF0B6D84);
-const brandGold = Color(0xFFC18B2D);
+const brandTeal = Color(0xFF8BC34A);
+const brandGold = Color(0xFF558B2F);
 const brandMist = Color(0xFFEAF3F1);
 const brandInk = Color(0xFF13242B);
 
@@ -322,7 +322,7 @@ class OperationRecord {
 final screenshotRecords = <OperationRecord>[
   OperationRecord(
     id: 'reservation-suite',
-    title: 'Confirm VIP suite reservation',
+    title: 'CAVACIUTI MELEARD MARIE-THERES',
     owner: 'Marie operations',
     notes:
         'Validate arrival time, room readiness, and evening service notes before 17:00.',
