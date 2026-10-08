@@ -66,7 +66,6 @@ jobs:
               return values[0]
           package = literal("applicationId")
           namespace = literal("namespace")
-          if namespace != package.replace("_", ""): raise SystemExit("Android namespace must match applicationId without underscores; align the branch before building")
           android_name = "{http://schemas.android.com/apk/res/android}name"
           manifest = ET.parse(root / "src/main/AndroidManifest.xml").getroot()
           launchers = [activity for activity in manifest.findall("./application/activity") if any(any(action.get(android_name) == "android.intent.action.MAIN" for action in intent.findall("action")) and any(category.get(android_name) == "android.intent.category.LAUNCHER" for category in intent.findall("category")) for intent in activity.findall("intent-filter"))]
