@@ -1,0 +1,3 @@
+CAVACIUTI MELEARD MARIE-THERES gives small business teams a focused place to coordinate daily operational work on Android. Create reservations, incident reports, lead follow-ups, and work orders, then assign owners, priority, due windows, and status.
+
+The app is built for practical local workflows: review the daily queue, filter the workboard, inspect status lanes, and update records as tasks move forward. Records and preferences stay on the device with no account, cloud sync, analytics, or external service connection.
