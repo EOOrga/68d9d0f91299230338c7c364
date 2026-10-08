@@ -1,4 +1,5 @@
 name: Build Flutter Android AAB
+run-name: Flutter AAB ${{ inputs.request_id || github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -8,6 +9,21 @@ on:
         required: false
         default: false
         type: boolean
+      upload_listing:
+        description: 'Update listing text and images together with the AAB'
+        required: false
+        default: true
+        type: boolean
+      request_id:
+        description: 'Optional identifier for tracking this build'
+        required: false
+        default: ''
+        type: string
+      source_commit:
+        description: 'Optional inspected commit to build'
+        required: false
+        default: ''
+        type: string
       track:
         description: 'Google Play draft track'
         required: false
@@ -20,7 +36,12 @@ on:
           - production
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
+
+concurrency:
+  group: android-build-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -28,6 +49,44 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit || github.ref }}
+      - name: Validate Android launcher package
+        run: |
+          python3 - <<'PY'
+          import re
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          root = Path("android/app")
+          gradle = next(path for path in (root / "build.gradle.kts", root / "build.gradle") if path.is_file()).read_text()
+          if re.search(r"\b(productFlavors|sourceSets|applicationIdSuffix)\b", gradle): raise SystemExit("Custom Android variants require launcher validation adapted to their source sets")
+          def literal(name):
+              values = re.findall(r'(?m)^[ \t]*' + name + r'[ \t]*(?:=[ \t]*|\([ \t]*)?["\']([^"\'\r\n]+)["\']', gradle)
+              if len(values) != 1: raise SystemExit(f"Expected one literal {name} in Gradle")
+              return values[0]
+          package = literal("applicationId")
+          namespace = literal("namespace")
+          if namespace != package.replace("_", ""): raise SystemExit("Android namespace must match applicationId without underscores; align the branch before building")
+          android_name = "{http://schemas.android.com/apk/res/android}name"
+          manifest = ET.parse(root / "src/main/AndroidManifest.xml").getroot()
+          launchers = [activity for activity in manifest.findall("./application/activity") if any(any(action.get(android_name) == "android.intent.action.MAIN" for action in intent.findall("action")) and any(category.get(android_name) == "android.intent.category.LAUNCHER" for category in intent.findall("category")) for intent in activity.findall("intent-filter"))]
+          if len(launchers) != 1 or manifest.findall("./application/activity-alias"): raise SystemExit("A single launcher activity is required")
+          name = launchers[0].get(android_name, "")
+          resolved = namespace + name if name.startswith(".") else name if "." in name else namespace + "." + name
+          if resolved != namespace + ".MainActivity": raise SystemExit("Launcher name does not match the Android namespace")
+          candidates = [path for folder in (root / "src/main/kotlin", root / "src/main/java") for path in folder.rglob("MainActivity.*") if path.suffix in {".kt", ".java"}]
+          if len(candidates) != 1: raise SystemExit("MainActivity is missing or ambiguous")
+          source = candidates[0].read_text()
+          declared = re.search(r"(?m)^[ \t]*package[ \t]+([\w.]+)[ \t]*;?[ \t]*$", source)
+          if not declared or declared.group(1) != namespace: raise SystemExit("MainActivity source package does not match namespace")
+          if not re.search(r"(?m)^[ \t]*(?:(?:public|open|final|internal)\s+)*class\s+MainActivity\b", source): raise SystemExit("MainActivity is not a concrete declared class")
+          language = "kotlin" if candidates[0].suffix == ".kt" else "java"
+          if candidates[0] != root / "src/main" / language / Path(namespace.replace(".", "/")) / candidates[0].name: raise SystemExit("MainActivity folder does not match its package")
+          for overlay in (root / "src").glob("*/AndroidManifest.xml"):
+              if overlay.parent.name == "main": continue
+              if ET.parse(overlay).getroot().findall("./application/activity") or ET.parse(overlay).getroot().findall("./application/activity-alias"): raise SystemExit(f"Launcher overlays require manual validation: {overlay}")
+          print(f"Verified Android launcher: {resolved}")
+          PY
       - name: Validate Android signing secrets
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -75,11 +134,54 @@ jobs:
         run: flutter pub get
       - name: Generate Android launcher icons
         run: dart run flutter_launcher_icons
+      - name: Reserve next Android versionCode
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (!context.ref.startsWith("refs/heads/")) throw new Error("Build a branch, not a tag.");
+            const branch = context.ref.slice("refs/heads/".length);
+            const path = ".github/android-version-code.txt";
+            const readFile = async (filePath) => {
+              try {
+                const response = await github.rest.repos.getContent({ ...context.repo, path: filePath, ref: branch });
+                if (Array.isArray(response.data) || response.data.type !== "file") throw new Error(`Expected a file: ${filePath}`);
+                return response.data;
+              } catch (error) {
+                if (error.status === 404) return null;
+                throw error;
+              }
+            };
+            const counter = await readFile(path);
+            let previous;
+            if (counter) {
+              const value = Buffer.from(counter.content, "base64").toString("utf8").trim();
+              if (!/^\d+$/.test(value)) throw new Error("Invalid Android version counter.");
+              previous = Number(value);
+            } else {
+              const pubspec = await readFile("pubspec.yaml");
+              if (!pubspec) throw new Error("Missing pubspec.yaml.");
+              const version = Buffer.from(pubspec.content, "base64").toString("utf8").match(/^version:\s*\S+\+(\d+)\s*$/m);
+              if (!version) throw new Error("Set a numeric build suffix in pubspec.yaml, for example version: 1.0.0+1.");
+              previous = Number(version[1]);
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, { ...context.repo, workflow_id: "flutter-build.yml", branch, per_page: 100 });
+              for (const run of runs) {
+                if (run.id !== context.runId) previous = Math.max(previous, run.run_number);
+              }
+            }
+            if (!Number.isSafeInteger(previous) || previous < 0 || previous >= 2100000000) throw new Error("Android versionCode is outside the allowed range.");
+            const next = previous + 1;
+            await github.rest.repos.createOrUpdateFileContents({
+              ...context.repo, path, branch,
+              message: `Reserve Android versionCode ${next} [skip ci]`,
+              content: Buffer.from(`${next}\n`).toString("base64"),
+              ...(counter ? { sha: counter.sha } : {})
+            });
+            core.exportVariable("BUILD_NUMBER", String(next));
+            core.info(`Reserved Android versionCode ${next}`);
       - name: Build signed Android App Bundle
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
         run: flutter build appbundle --release --build-number "$BUILD_NUMBER"
       - name: Prepare Play phone screenshots from docs/screens
+        if: ${{ inputs.upload_listing != false }}
         env:
           PUBLISH_TO_PLAY: ${{ inputs.publish_to_play }}
         run: |
@@ -101,7 +203,7 @@ jobs:
             fi
           fi
       - name: Verify Play phone screenshots
-        if: ${{ inputs.publish_to_play }}
+        if: ${{ inputs.publish_to_play && inputs.upload_listing != false }}
         run: |
           python3 -m pip install --quiet pillow
           python3 - <<'PY'
@@ -126,7 +228,7 @@ jobs:
           print(f"Verified {len(images)} valid, distinct phone screenshots")
           PY
       - name: Prepare Play feature graphic from docs/featured.png
-        if: ${{ inputs.publish_to_play }}
+        if: ${{ inputs.publish_to_play && inputs.upload_listing != false }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -154,7 +256,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Upload Play phone screenshots artifact
-        if: ${{ inputs.publish_to_play }}
+        if: ${{ inputs.publish_to_play && inputs.upload_listing != false }}
         uses: actions/upload-artifact@v4
         with:
           name: flutter-phone-screenshots-${{ github.run_number }}
@@ -166,15 +268,29 @@ jobs:
         env:
           PLAY_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
           PLAY_TRACK: ${{ inputs.track }}
+          UPLOAD_LISTING: ${{ inputs.upload_listing }}
         run: |
           set -euo pipefail
           if [ -z "$PLAY_KEY" ]; then echo "Missing PLAY_STORE_JSON_KEY secret"; exit 1; fi
-          SCREENSHOT_COUNT=$(find fastlane/metadata/android/en-US/images/phoneScreenshots -maxdepth 1 -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) 2>/dev/null | wc -l)
-          if [ "$SCREENSHOT_COUNT" -lt 2 ]; then echo "At least 2 phone screenshots are required"; exit 1; fi
-          PACKAGE_NAME=$(grep -E '^[[:space:]]*applicationId[[:space:]]*=' android/app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          LISTING_ARGS=()
+          if [ "$UPLOAD_LISTING" = "false" ]; then
+            LISTING_ARGS=(--skip_upload_metadata true --skip_upload_images true --skip_upload_screenshots true)
+          else
+            SCREENSHOT_COUNT=$(find fastlane/metadata/android/en-US/images/phoneScreenshots -maxdepth 1 -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) 2>/dev/null | wc -l)
+            if [ "$SCREENSHOT_COUNT" -lt 2 ]; then echo "At least 2 phone screenshots are required"; exit 1; fi
+          fi
+          PACKAGE_NAME=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          path = next(path for path in (Path("android/app/build.gradle.kts"), Path("android/app/build.gradle")) if path.is_file())
+          match = re.search(r'(?m)^\s*applicationId\s*(?:=\s*|\(\s*)?["\']([^"\']+)["\']', path.read_text())
+          if not match: raise SystemExit("Could not read applicationId")
+          print(match.group(1))
+          PY
+          )
           if [ -z "$PACKAGE_NAME" ]; then echo "Could not read applicationId"; exit 1; fi
           sudo gem install fastlane --no-document
-          fastlane supply --json_key_data "$PLAY_KEY" --package_name "$PACKAGE_NAME" --aab build/app/outputs/bundle/release/app-release.aab --metadata_path fastlane/metadata/android --track "$PLAY_TRACK" --release_status draft --skip_upload_apk true --skip_upload_changelogs true
+          fastlane supply --json_key_data "$PLAY_KEY" --package_name "$PACKAGE_NAME" --aab build/app/outputs/bundle/release/app-release.aab --metadata_path fastlane/metadata/android --track "$PLAY_TRACK" --release_status draft --skip_upload_apk true --skip_upload_changelogs true "${LISTING_ARGS[@]}"
       - name: Remove temporary signing files
         if: always()
         run: rm -f android/key.properties android/upload-keystore.jks android/app/upload-keystore.jks
