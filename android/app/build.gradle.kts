@@ -31,7 +31,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.taziggg100.cavaciuti_ops"
+        applicationId = "com.hawtacis.cavaciuti"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
